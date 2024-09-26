@@ -1,0 +1,53 @@
+(() => {
+  const $repostButtonSelector = 'button[data-testid="unretweet"]'; // Selector for the repost button
+
+  const sleep = ({ seconds }) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, seconds * 1000);
+    });
+
+  // Function to click repost buttons and undo reposts
+  const undoReposts = async (repostButtons) => {
+    console.log(`UNDOING REPOSTS FOR ${repostButtons.length} POSTS...`);
+
+    for (const repostButton of repostButtons) {
+      if (repostButton && typeof repostButton.click === 'function') {
+        repostButton.click(); // Click the repost button to open the menu
+        await sleep({ seconds: 0.5 }); // Short delay to allow the menu to open
+
+        // Look for the "Undo repost" option in the menu and click it
+        const undoRepostOption = document.evaluate(
+          "//span[contains(text(), 'Undo repost')]",
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        ).singleNodeValue;
+
+        if (undoRepostOption) {
+          undoRepostOption.click(); // Click "Undo repost"
+          await sleep({ seconds: 0.5 }); // Short delay after clicking "Undo repost"
+        }
+      }
+    }
+  };
+
+  const nextBatch = async () => {
+    const repostButtons = Array.from(document.querySelectorAll($repostButtonSelector));
+
+    if (repostButtons.length > 0) {
+      await undoReposts(repostButtons);
+      await sleep({ seconds: 1 }); // Short delay between batches
+
+      // Scroll down to load more posts (move down a viewport)
+      window.scrollBy(0, window.innerHeight);
+      await sleep({ seconds: 1 }); // Short wait after scrolling
+
+      return nextBatch();
+    } else {
+      console.log(`NO MORE REPOSTS FOUND. IF ANY WERE MISSED, SCROLL BACK UP OR RE-RUN.`);
+    }
+  };
+
+  nextBatch();
+})();
