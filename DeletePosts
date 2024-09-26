@@ -1,0 +1,77 @@
+(() => {
+  const $deleteButtons = '[data-testid="caret"]'; // Selector to find the post options (3 dots/caret)
+  const $confirmDeleteButton = '[data-testid="confirmationSheetConfirm"]'; // Confirm deletion button
+
+  let pinnedPostId = null;
+
+  // Identify the pinned post so we can exclude it from deletion
+  const getPinnedPostId = () => {
+    const pinnedPost = document.querySelector('[aria-label="Pinned Tweet"]');
+    if (pinnedPost) {
+      const pinnedLink = pinnedPost.querySelector('a[href*="/status/"]');
+      if (pinnedLink) {
+        pinnedPostId = pinnedLink.href.split("/status/")[1];
+      }
+    }
+  };
+
+  const sleep = ({ seconds }) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, seconds * 1000);
+    });
+
+  // Delete posts in parallel to speed up the process
+  const deletePosts = async (postButtons) => {
+    console.log(`DELETING ${postButtons.length} POSTS...`);
+
+    // Perform deletions in parallel
+    await Promise.all(
+      postButtons.map(async (postButton) => {
+        const postId = postButton.closest('article').querySelector('a[href*="/status/"]').href.split("/status/")[1];
+        if (postId !== pinnedPostId) { // Skip the pinned post
+          postButton.click(); // Click the caret to open options
+          await sleep({ seconds: 0.5 }); // Faster delay
+
+          const deleteOption = document.evaluate(
+            "//span[contains(text(), 'Delete')]",
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+          ).singleNodeValue;
+
+          if (deleteOption) {
+            deleteOption.click(); // Click the delete option
+            await sleep({ seconds: 0.5 }); // Faster delay
+
+            const confirmButton = document.querySelector($confirmDeleteButton);
+            if (confirmButton) {
+              confirmButton.click(); // Confirm deletion
+              await sleep({ seconds: 0.5 }); // Faster delay
+            }
+          }
+        }
+      })
+    );
+  };
+
+  const nextBatch = async () => {
+    const deleteButtons = Array.from(document.querySelectorAll($deleteButtons));
+
+    if (deleteButtons.length > 0) {
+      await deletePosts(deleteButtons);
+      await sleep({ seconds: 1 }); // Shorter delay between batches
+
+      // Scroll down just a little to load more posts (move down a viewport)
+      window.scrollBy(0, window.innerHeight);
+      await sleep({ seconds: 1 }); // Short wait after scrolling
+
+      return nextBatch();
+    } else {
+      console.log(`NO MORE POSTS FOUND. IF ANY WERE MISSED, SCROLL BACK UP OR RE-RUN.`);
+    }
+  };
+
+  getPinnedPostId(); // Get the pinned post ID
+  nextBatch();
+})();
