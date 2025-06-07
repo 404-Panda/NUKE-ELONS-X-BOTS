@@ -1,0 +1,93 @@
+(() => {
+  const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
+  const likeButtonSelector = '[role="button"][aria-label*="Like"]';
+  const followXPath = "//span[text()='Follow']/ancestor::div[@role='button']";
+
+  const chance = (prob) => Math.random() < prob;
+
+  // Keep track of tweet IDs already processed
+  const processedTweetIds = new Set();
+
+  // Helper to get tweet id from a like button's closest article
+  const getTweetIdFromButton = (btn) => {
+    const article = btn.closest('article');
+    if (!article) return null;
+    const link = article.querySelector('a[href*="/status/"]');
+    if (!link) return null;
+    const url = link.href;
+    const match = url.match(/status\/(\d+)/);
+    return match ? match[1] : null;
+  };
+
+  const likePosts = async (maxLikes = 5) => {
+    const likeButtons = Array.from(document.querySelectorAll(likeButtonSelector));
+    let likedCount = 0;
+
+    for (const btn of likeButtons) {
+      const tweetId = getTweetIdFromButton(btn);
+      if (!tweetId || processedTweetIds.has(tweetId)) continue;
+
+      // Mark as processed to avoid repeats
+      processedTweetIds.add(tweetId);
+
+      // Skip some likes randomly (~50%)
+      if (!chance(0.5)) continue;
+
+      // Skip if already liked
+      if (btn.getAttribute('aria-pressed') === 'true') continue;
+
+      btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await sleep(0.5);
+      btn.click();
+      likedCount++;
+      console.log(`Liked tweet ID: ${tweetId} (#${likedCount})`);
+
+      await sleep(2 + Math.random() * 2);
+      if (likedCount >= maxLikes) break;
+    }
+  };
+
+  const followUsers = async (maxFollows = 3) => {
+    const followButtons = [];
+    const snap = document.evaluate(followXPath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    for (let i = 0; i < snap.snapshotLength; i++) {
+      followButtons.push(snap.snapshotItem(i));
+    }
+
+    let followedCount = 0;
+
+    for (const btn of followButtons) {
+      // We can also track user IDs if needed, but for now just random filter
+
+      if (!chance(0.4)) continue;
+      if (btn.getAttribute('aria-pressed') === 'true' || btn.getAttribute('aria-disabled') === 'true') continue;
+
+      btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      await sleep(0.5);
+      btn.click();
+      followedCount++;
+      console.log(`Followed user #${followedCount}`);
+
+      await sleep(3 + Math.random() * 3);
+      if (followedCount >= maxFollows) break;
+    }
+  };
+
+  const run = async () => {
+    let loops = 0;
+    while (loops < 20) {
+      console.log(`Cycle ${loops + 1}`);
+
+      await likePosts();
+      await followUsers();
+
+      window.scrollBy(0, window.innerHeight);
+      await sleep(5 + Math.random() * 5);
+
+      loops++;
+    }
+    console.log('✅ Engagement script finished');
+  };
+
+  run();
+})();
