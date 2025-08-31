@@ -1,0 +1,148 @@
+(async () => {
+  const handle = "DaAlphaPanda";
+  const deleteConfirmSelector = '[data-testid="confirmationSheetConfirm"]';
+  const repostButtonSelector = 'button[data-testid="unretweet"]';
+
+  let pinnedPostId = null;
+  const deletedPosts = new Set();
+
+  const sleep = (seconds) =>
+    new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+
+  const waitForElement = (checkFn, timeout = 5000) =>
+    new Promise((resolve, reject) => {
+      const start = Date.now();
+      const timer = setInterval(() => {
+        const el = checkFn();
+        if (el) {
+          clearInterval(timer);
+          resolve(el);
+        } else if (Date.now() - start > timeout) {
+          clearInterval(timer);
+          reject("Timeout waiting for element");
+        }
+      }, 100);
+    });
+
+  const getPinnedPostId = () => {
+    const pinned = document.querySelector('[aria-label="Pinned Tweet"]');
+    if (pinned) {
+      const link = pinned.querySelector('a[href*="/status/"]');
+      if (link) {
+        pinnedPostId = link.href.split("/status/")[1];
+      }
+    }
+  };
+
+  const getMyTweets = () => {
+    return Array.from(document.querySelectorAll('article[data-testid="tweet"]')).filter((article) => {
+      const link = article.querySelector(`a[href*="/${handle}"]`);
+      const statusLink = article.querySelector('a[href*="/status/"]');
+      if (!link || !statusLink) return false;
+
+      const tweetId = statusLink.href.split("/status/")[1];
+      if (tweetId === pinnedPostId || deletedPosts.has(tweetId)) return false;
+
+      return true;
+    });
+  };
+
+  const clickDeleteFlow = async (article) => {
+    try {
+      const tweetId = article.querySelector('a[href*="/status/"]').href.split("/status/")[1];
+
+      const caretBtn = article.querySelector('[data-testid="caret"]');
+      if (!caretBtn) return;
+
+      caretBtn.click();
+
+      const deleteBtn = await waitForElement(() => {
+        return document.evaluate(
+          "//span[text()='Delete']",
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        ).singleNodeValue;
+      });
+
+      deleteBtn.click();
+
+      const confirmBtn = await waitForElement(() => {
+        return document.querySelector(deleteConfirmSelector);
+      });
+
+      confirmBtn.click();
+
+      deletedPosts.add(tweetId);
+      console.log(`✅ Deleted: ${tweetId}`);
+    } catch (err) {
+      console.warn(`⛔ Delete skip: ${err}`);
+    }
+  };
+
+  const undoRepostFlow = async (button) => {
+    try {
+      button.click();
+      await sleep(0.5);
+
+      const undoOption = document.evaluate(
+        "//span[contains(text(), 'Undo repost')]",
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      ).singleNodeValue;
+
+      if (undoOption) {
+        undoOption.click();
+        await sleep(0.5);
+        console.log(`🔁 Un-reposted`);
+      }
+    } catch (err) {
+      console.warn(`⛔ Repost skip: ${err}`);
+    }
+  };
+
+  const processBatch = async () => {
+    let didSomething = false;
+
+    // Handle deletions
+    const myTweets = getMyTweets();
+    if (myTweets.length > 0) {
+      for (const tweet of myTweets) {
+        await clickDeleteFlow(tweet);
+        didSomething = true;
+        await sleep(0.5);
+      }
+    }
+
+    // Handle un-reposts
+    const repostButtons = Array.from(document.querySelectorAll(repostButtonSelector));
+    if (repostButtons.length > 0) {
+      for (const button of repostButtons) {
+        await undoRepostFlow(button);
+        didSomething = true;
+        await sleep(0.5);
+      }
+    }
+
+    return didSomething;
+  };
+
+  const scrollAndExecute = async () => {
+    console.log("🚀 Starting deletion & un-repost cycle...");
+    getPinnedPostId();
+
+    let keepGoing = true;
+    while (keepGoing) {
+      keepGoing = await processBatch();
+      window.scrollBy(0, window.innerHeight);
+      await sleep(1.5);
+    }
+
+    console.log("✅ All deletions and un-reposts complete.");
+  };
+
+  await scrollAndExecute();
+})();
