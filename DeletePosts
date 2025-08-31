@@ -1,73 +1,109 @@
 (() => {
-  const $deleteButtons = '[data-testid="caret"]'; // Selector to find the post options (3 dots/caret)
-  const $confirmDeleteButton = '[data-testid="confirmationSheetConfirm"]'; // Confirm deletion button
+  const handle = "DaAlphaPanda";
+  const deleteConfirmSelector = '[data-testid="confirmationSheetConfirm"]';
 
   let pinnedPostId = null;
+  const deletedPosts = new Set();
 
-  // Identify the pinned post so we can exclude it from deletion
+  const waitForElement = (checkFn, timeout = 5000) =>
+    new Promise((resolve, reject) => {
+      const start = Date.now();
+      const timer = setInterval(() => {
+        const el = checkFn();
+        if (el) {
+          clearInterval(timer);
+          resolve(el);
+        } else if (Date.now() - start > timeout) {
+          clearInterval(timer);
+          reject("Timeout waiting for element");
+        }
+      }, 100);
+    });
+
   const getPinnedPostId = () => {
-    const pinnedPost = document.querySelector('[aria-label="Pinned Tweet"]');
-    if (pinnedPost) {
-      const pinnedLink = pinnedPost.querySelector('a[href*="/status/"]');
-      if (pinnedLink) {
-        pinnedPostId = pinnedLink.href.split("/status/")[1];
+    const pinned = document.querySelector('[aria-label="Pinned Tweet"]');
+    if (pinned) {
+      const link = pinned.querySelector('a[href*="/status/"]');
+      if (link) {
+        pinnedPostId = link.href.split("/status/")[1];
       }
     }
   };
 
-  const sleep = (seconds) =>
-    new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  const getMyTweets = () => {
+    return Array.from(document.querySelectorAll('article[data-testid="tweet"]')).filter(article => {
+      const link = article.querySelector(`a[href*="/${handle}"]`);
+      const statusLink = article.querySelector('a[href*="/status/"]');
+      if (!link || !statusLink) return false;
 
-  // Delete posts one at a time
-  const deletePosts = async (postButtons) => {
-    console.log(`DELETING ${postButtons.length} POSTS...`);
+      const tweetId = statusLink.href.split("/status/")[1];
+      if (tweetId === pinnedPostId || deletedPosts.has(tweetId)) return false;
 
-    for (const postButton of postButtons) {
-      const postId = postButton.closest('article').querySelector('a[href*="/status/"]').href.split("/status/")[1];
+      return true;
+    });
+  };
 
-      if (postId !== pinnedPostId) { // Skip the pinned post
-        postButton.click(); // Click the caret to open options
-        await sleep(0.5); // Shorter delay
+  const clickDeleteFlow = async (article) => {
+    try {
+      const tweetId = article.querySelector('a[href*="/status/"]').href.split("/status/")[1];
 
-        const deleteOption = document.evaluate(
-          "//span[contains(text(), 'Delete')]",
+      const caretBtn = article.querySelector('[data-testid="caret"]');
+      if (!caretBtn) return;
+
+      caretBtn.click();
+
+      const deleteBtn = await waitForElement(() => {
+        return document.evaluate(
+          "//span[text()='Delete']",
           document,
           null,
           XPathResult.FIRST_ORDERED_NODE_TYPE,
           null
         ).singleNodeValue;
+      });
 
-        if (deleteOption) {
-          deleteOption.click(); // Click the delete option
-          await sleep(0.5); // Shorter delay
+      deleteBtn.click();
 
-          const confirmButton = document.querySelector($confirmDeleteButton);
-          if (confirmButton) {
-            confirmButton.click(); // Confirm deletion
-            await sleep(1); // Slightly longer delay to ensure completion
-          }
-        }
-      }
+      const confirmBtn = await waitForElement(() => {
+        return document.querySelector(deleteConfirmSelector);
+      });
+
+      confirmBtn.click();
+
+      deletedPosts.add(tweetId);
+      console.log(`✅ Deleted: ${tweetId}`);
+    } catch (err) {
+      console.warn(`⛔ Skip: ${err}`);
     }
   };
 
-  const nextBatch = async () => {
-    const deleteButtons = Array.from(document.querySelectorAll($deleteButtons));
+  const deleteBatch = async () => {
+    const myTweets = getMyTweets();
 
-    if (deleteButtons.length > 0) {
-      await deletePosts(deleteButtons);
-      await sleep(1); // Shorter delay between batches
+    if (myTweets.length === 0) {
+      console.log("No more deletable tweets found.");
+      return false;
+    }
 
-      // Scroll down just a little to load more posts (move down a viewport)
+    for (const tweet of myTweets) {
+      await clickDeleteFlow(tweet);
+    }
+
+    return true;
+  };
+
+  const scrollAndRun = async () => {
+    getPinnedPostId();
+
+    let keepGoing = true;
+    while (keepGoing) {
+      keepGoing = await deleteBatch();
       window.scrollBy(0, window.innerHeight);
-      await sleep(1); // Short wait after scrolling
-
-      return nextBatch();
-    } else {
-      console.log(`NO MORE POSTS FOUND. IF ANY WERE MISSED, SCROLL BACK UP OR RE-RUN.`);
+      await new Promise(r => setTimeout(r, 1500));
     }
+
+    console.log("🎯 Finished all deletions.");
   };
 
-  getPinnedPostId(); // Get the pinned post ID
-  nextBatch();
+  scrollAndRun();
 })();
