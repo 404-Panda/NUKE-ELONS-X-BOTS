@@ -1,5 +1,5 @@
 (async () => {
-  const handle = "DaAlphaPanda";
+  const handle = "YouTwitterHere";
   const deleteConfirmSelector = '[data-testid="confirmationSheetConfirm"]';
   const repostButtonSelector = 'button[data-testid="unretweet"]';
 
@@ -9,7 +9,7 @@
   const sleep = (seconds) =>
     new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 
-  const waitForElement = (checkFn, timeout = 5000) =>
+  const waitForElement = (checkFn, timeout = 3000) =>
     new Promise((resolve, reject) => {
       const start = Date.now();
       const timer = setInterval(() => {
@@ -47,6 +47,34 @@
     });
   };
 
+  const undoRepostFlow = async (article) => {
+    try {
+      const repostBtn = article.querySelector(repostButtonSelector);
+      if (!repostBtn) return false;
+
+      repostBtn.click();
+      await sleep(0.5);
+
+      const undoOption = document.evaluate(
+        "//span[contains(text(), 'Undo repost')]",
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      ).singleNodeValue;
+
+      if (undoOption) {
+        undoOption.click();
+        await sleep(0.5);
+        console.log(`🔁 Un-reposted`);
+        return true;
+      }
+    } catch (err) {
+      console.warn(`⛔ Repost skip: ${err}`);
+    }
+    return false;
+  };
+
   const clickDeleteFlow = async (article) => {
     try {
       const tweetId = article.querySelector('a[href*="/status/"]').href.split("/status/")[1];
@@ -56,15 +84,24 @@
 
       caretBtn.click();
 
-      const deleteBtn = await waitForElement(() => {
-        return document.evaluate(
-          "//span[text()='Delete']",
-          document,
-          null,
-          XPathResult.FIRST_ORDERED_NODE_TYPE,
-          null
-        ).singleNodeValue;
-      });
+      let deleteBtn;
+      try {
+        deleteBtn = await waitForElement(() => {
+          return document.evaluate(
+            "//span[text()='Delete']",
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+          ).singleNodeValue;
+        });
+      } catch (err) {
+        // No Delete found → likely a repost
+        console.log(`↩️ No delete option for ${tweetId}, trying un-repost...`);
+        const success = await undoRepostFlow(article);
+        if (success) deletedPosts.add(tweetId);
+        return;
+      }
 
       deleteBtn.click();
 
@@ -81,33 +118,10 @@
     }
   };
 
-  const undoRepostFlow = async (button) => {
-    try {
-      button.click();
-      await sleep(0.5);
-
-      const undoOption = document.evaluate(
-        "//span[contains(text(), 'Undo repost')]",
-        document,
-        null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE,
-        null
-      ).singleNodeValue;
-
-      if (undoOption) {
-        undoOption.click();
-        await sleep(0.5);
-        console.log(`🔁 Un-reposted`);
-      }
-    } catch (err) {
-      console.warn(`⛔ Repost skip: ${err}`);
-    }
-  };
-
   const processBatch = async () => {
     let didSomething = false;
 
-    // Handle deletions
+    // Handle deletions (with fallback to un-repost)
     const myTweets = getMyTweets();
     if (myTweets.length > 0) {
       for (const tweet of myTweets) {
@@ -117,11 +131,11 @@
       }
     }
 
-    // Handle un-reposts
+    // Handle stray un-repost buttons if any remain
     const repostButtons = Array.from(document.querySelectorAll(repostButtonSelector));
     if (repostButtons.length > 0) {
       for (const button of repostButtons) {
-        await undoRepostFlow(button);
+        await undoRepostFlow(button.closest('article[data-testid="tweet"]'));
         didSomething = true;
         await sleep(0.5);
       }
